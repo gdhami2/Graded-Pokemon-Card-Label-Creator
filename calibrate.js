@@ -5,9 +5,17 @@ const resultWrap = document.getElementById('result-wrap');
 const resultCanvas = document.getElementById('resultCanvas');
 const downloadBtn = document.getElementById('downloadBtn');
 
-const MIN_SAMPLES = 3;
-const POISSON_ITERATIONS = 4000;
-const ITERATIONS_PER_CHUNK = 40;
+const MIN_SAMPLES = 8;
+
+// Percentile of the per-pixel sample variance treated as the "unaffected
+// background" reference level. Most of the label isn't covered by the
+// watermark, so most pixels should sit near the top of the variance
+// distribution; only pixels under the watermark get suppressed below it.
+const BASELINE_VARIANCE_PERCENTILE = 0.9;
+
+// Alpha below this is treated as "confidently untouched by the watermark",
+// used to estimate the background's own baseline color per channel.
+const CONFIDENT_BACKGROUND_ALPHA = 0.05;
 
 let profileDataUrl = null;
 
@@ -30,120 +38,105 @@ function loadImage(file) {
 }
 
 // Draws each sample onto a common TARGET_W x TARGET_H canvas (matching the
-// main tool's normalization) and returns its luminance field.
-function toLuminance(img) {
+// main tool's normalization) and returns its raw RGBA pixel data.
+function toRGBA(img) {
   const canvas = document.createElement('canvas');
   canvas.width = TARGET_W;
   canvas.height = TARGET_H;
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0, TARGET_W, TARGET_H);
-  const { data } = ctx.getImageData(0, 0, TARGET_W, TARGET_H);
-
-  const lum = new Float32Array(TARGET_W * TARGET_H);
-  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-    lum[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-  }
-  return lum;
+  return ctx.getImageData(0, 0, TARGET_W, TARGET_H).data;
 }
 
-// For each pixel, the horizontal/vertical gradient is dominated by the
-// watermark's structure once we take the median across many differently-
-// backgrounded samples — the varying background gradients cancel out
-// around a median of ~0, while the watermark's consistent edges don't.
-function computeMedianGradients(luminanceFields, width, height) {
-  const n = luminanceFields.length;
-  const gx = new Float32Array(width * height);
-  const gy = new Float32Array(width * height);
-  const buf = new Float32Array(n);
+// The watermark is modeled as a per-pixel alpha composite over an unknown,
+// varying background: observed = background*(1-a) + watermarkColor*a. Across
+// many differently-designed samples, the background at a given pixel behaves
+// like independent draws from some distribution, and compositing scales down
+// their spread by (1-a). So pixels under the watermark show suppressed
+// variance across the sample set relative to unaffected pixels — which lets
+// us solve for both the alpha matte and the watermark's color without ever
+// having an unwatermarked sample to compare against.
+function estimateWatermark(samples, width, height) {
+  const n = samples.length;
+  const pixelCount = width * height;
 
-  function median(values, count) {
-    const sorted = values.slice(0, count).sort((a, b) => a - b);
-    const mid = count >> 1;
-    return count % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const meanR = new Float64Array(pixelCount);
+  const meanG = new Float64Array(pixelCount);
+  const meanB = new Float64Array(pixelCount);
+  const variance = new Float64Array(pixelCount);
+
+  for (let p = 0; p < pixelCount; p++) {
+    const i = p * 4;
+    let sumR = 0, sumG = 0, sumB = 0;
+    for (let k = 0; k < n; k++) {
+      sumR += samples[k][i];
+      sumG += samples[k][i + 1];
+      sumB += samples[k][i + 2];
+    }
+    const mr = sumR / n, mg = sumG / n, mb = sumB / n;
+    meanR[p] = mr; meanG[p] = mg; meanB[p] = mb;
+
+    let varSum = 0;
+    for (let k = 0; k < n; k++) {
+      const dr = samples[k][i] - mr;
+      const dg = samples[k][i + 1] - mg;
+      const db = samples[k][i + 2] - mb;
+      varSum += dr * dr + dg * dg + db * db;
+    }
+    variance[p] = varSum / n;
   }
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = y * width + x;
+  const sortedVariance = Float64Array.from(variance).sort();
+  const baseline = sortedVariance[Math.floor(pixelCount * BASELINE_VARIANCE_PERCENTILE)] || 1;
 
-      if (x < width - 1) {
-        for (let k = 0; k < n; k++) {
-          buf[k] = luminanceFields[k][idx + 1] - luminanceFields[k][idx];
-        }
-        gx[idx] = median(buf, n);
-      }
+  const alpha = new Float64Array(pixelCount);
+  for (let p = 0; p < pixelCount; p++) {
+    const ratio = variance[p] / baseline;
+    alpha[p] = ratio >= 1 ? 0 : 1 - Math.sqrt(ratio);
+  }
 
-      if (y < height - 1) {
-        for (let k = 0; k < n; k++) {
-          buf[k] = luminanceFields[k][idx + width] - luminanceFields[k][idx];
-        }
-        gy[idx] = median(buf, n);
-      }
+  function medianBackground(meanChannel) {
+    const values = [];
+    for (let p = 0; p < pixelCount; p++) {
+      if (alpha[p] < CONFIDENT_BACKGROUND_ALPHA) values.push(meanChannel[p]);
+    }
+    if (!values.length) return 128;
+    values.sort((a, b) => a - b);
+    return values[Math.floor(values.length / 2)];
+  }
+  const muR = medianBackground(meanR);
+  const muG = medianBackground(meanG);
+  const muB = medianBackground(meanB);
+
+  const colorR = new Float64Array(pixelCount);
+  const colorG = new Float64Array(pixelCount);
+  const colorB = new Float64Array(pixelCount);
+  for (let p = 0; p < pixelCount; p++) {
+    const a = alpha[p];
+    if (a < CONFIDENT_BACKGROUND_ALPHA) {
+      colorR[p] = muR; colorG[p] = muG; colorB[p] = muB;
+    } else {
+      colorR[p] = (meanR[p] - (1 - a) * muR) / a;
+      colorG[p] = (meanG[p] - (1 - a) * muG) / a;
+      colorB[p] = (meanB[p] - (1 - a) * muB) / a;
     }
   }
 
-  return { gx, gy };
+  return { alpha, colorR, colorG, colorB };
 }
 
-function computeDivergence(gx, gy, width, height) {
-  const div = new Float32Array(width * height);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = y * width + x;
-      const gxHere = x < width - 1 ? gx[idx] : 0;
-      const gxPrev = x > 0 ? gx[idx - 1] : 0;
-      const gyHere = y < height - 1 ? gy[idx] : 0;
-      const gyPrev = y > 0 ? gy[idx - width] : 0;
-      div[idx] = (gxHere - gxPrev) + (gyHere - gyPrev);
-    }
-  }
-  return div;
-}
-
-// Solves the Poisson equation (Laplacian(W) = div) with zero-Dirichlet
-// boundaries via chunked Gauss-Seidel relaxation, yielding to the browser
-// between chunks so the page stays responsive.
-function poissonReconstruct(div, width, height, iterations, onProgress) {
-  return new Promise((resolve) => {
-    const w = new Float32Array(width * height);
-
-    function runChunk(done) {
-      const target = Math.min(done + ITERATIONS_PER_CHUNK, iterations);
-      for (let it = done; it < target; it++) {
-        for (let y = 1; y < height - 1; y++) {
-          for (let x = 1; x < width - 1; x++) {
-            const idx = y * width + x;
-            w[idx] = (w[idx - 1] + w[idx + 1] + w[idx - width] + w[idx + width] - div[idx]) / 4;
-          }
-        }
-      }
-
-      onProgress(target, iterations);
-
-      if (target < iterations) {
-        setTimeout(() => runChunk(target), 0);
-      } else {
-        resolve(w);
-      }
-    }
-
-    runChunk(0);
-  });
-}
-
-function renderProfile(w, width, height) {
+function renderProfile(watermark, width, height) {
   resultCanvas.width = width;
   resultCanvas.height = height;
   const ctx = resultCanvas.getContext('2d');
   const imageData = ctx.createImageData(width, height);
   const data = imageData.data;
 
-  for (let p = 0; p < w.length; p++) {
-    const byte = Math.max(0, Math.min(255, Math.round(w[p] / WATERMARK_DELTA_SCALE + 128)));
-    data[p * 4] = byte;
-    data[p * 4 + 1] = byte;
-    data[p * 4 + 2] = byte;
-    data[p * 4 + 3] = 255;
+  for (let p = 0; p < width * height; p++) {
+    data[p * 4] = Math.max(0, Math.min(255, Math.round(watermark.colorR[p])));
+    data[p * 4 + 1] = Math.max(0, Math.min(255, Math.round(watermark.colorG[p])));
+    data[p * 4 + 2] = Math.max(0, Math.min(255, Math.round(watermark.colorB[p])));
+    data[p * 4 + 3] = Math.max(0, Math.min(255, Math.round(watermark.alpha[p] * 255)));
   }
 
   ctx.putImageData(imageData, 0, 0);
@@ -163,16 +156,11 @@ async function handleFiles(fileList) {
   const images = await Promise.all(files.map(loadImage));
 
   setStatus(`Analyzing ${images.length} images...`);
-  const luminanceFields = images.map(toLuminance);
+  const samples = images.map(toRGBA);
 
-  const { gx, gy } = computeMedianGradients(luminanceFields, TARGET_W, TARGET_H);
-  const div = computeDivergence(gx, gy, TARGET_W, TARGET_H);
+  const watermark = estimateWatermark(samples, TARGET_W, TARGET_H);
 
-  const w = await poissonReconstruct(div, TARGET_W, TARGET_H, POISSON_ITERATIONS, (done, total) => {
-    setStatus(`Reconstructing watermark pattern... ${Math.round((done / total) * 100)}%`);
-  });
-
-  renderProfile(w, TARGET_W, TARGET_H);
+  renderProfile(watermark, TARGET_W, TARGET_H);
   setStatus(`Done. Estimated from ${images.length} images.`);
 }
 
