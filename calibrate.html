@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watermark Calibration</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="card">
+  <p class="back-link"><a href="index.html">&larr; Back to tool</a></p>
+
+  <h1>Watermark calibration</h1>
+  <p class="help-text">
+    Drop in as many sample images as you have that share the same watermark
+    (10&ndash;30+, the more varied the backgrounds the better). This builds a
+    correction profile that the main tool will use to remove the watermark
+    automatically from future uploads.
+  </p>
+
+  <div id="dropzone">
+    <div class="icon">🖼️</div>
+    <p>Drag &amp; drop sample images here, or <span class="browse">browse</span></p>
+    <input type="file" id="fileInput" accept="image/*" multiple>
+  </div>
+
+  <div id="status"></div>
+
+  <div id="result-wrap">
+    <p class="help-text">Estimated watermark pattern (should look like your watermark, roughly neutral gray elsewhere):</p>
+    <canvas id="resultCanvas"></canvas>
+    <div class="actions">
+      <button id="downloadBtn" type="button">Download profile</button>
+    </div>
+    <p class="help-text">
+      Save the downloaded file as <code>watermark-profile.png</code> in this
+      project folder (overwriting any existing one), then reload the main tool.
+    </p>
+  </div>
+</div>
+
+<script src="constants.js"></script>
+<script src="calibrate.js"></script>
+
+</body>
+</html>

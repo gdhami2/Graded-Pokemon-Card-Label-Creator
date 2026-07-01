@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Upload</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="card">
+  <div id="dropzone">
+    <div class="icon">🖼️</div>
+    <p>Drag &amp; drop an image here, or <span class="browse">browse</span></p>
+    <input type="file" id="fileInput" accept="image/*">
+  </div>
+
+  <div id="preview-wrap">
+    <img id="preview" alt="Selected preview">
+    <div id="dimensions">63mm x 20mm &middot; 744 x 236 px &middot; 300 DPI</div>
+    <div id="filename"></div>
+    <div class="tolerance-row" id="watermarkRow" style="display: none;">
+      <label for="watermarkSlider">Watermark removal strength: <span id="watermarkValue"></span>%</label>
+      <input type="range" id="watermarkSlider" min="0" max="150" step="5">
+    </div>
+
+    <div class="text-fields">
+      <div class="field-group">
+        <label for="setName">Set name</label>
+        <div class="field-with-colors">
+          <input type="text" id="setName" placeholder="e.g. 2023 Crown Zenith">
+          <div class="color-pick">
+            <input type="color" id="setNameColor" value="#ffffff">
+            <span>Text</span>
+          </div>
+          <div class="color-pick">
+            <input type="color" id="setNameOutline" value="#000000">
+            <span>Outline</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="cardName">Card name</label>
+        <div class="field-with-colors">
+          <input type="text" id="cardName" placeholder="e.g. Hisuian Samurott V">
+          <div class="color-pick">
+            <input type="color" id="cardNameColor" value="#ffffff">
+            <span>Text</span>
+          </div>
+          <div class="color-pick">
+            <input type="color" id="cardNameOutline" value="#000000">
+            <span>Outline</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="cardType">Type of card</label>
+        <div class="field-with-colors">
+          <input type="text" id="cardType" placeholder="e.g. Special Art">
+          <div class="color-pick">
+            <input type="color" id="cardTypeColor" value="#ffffff">
+            <span>Text</span>
+          </div>
+          <div class="color-pick">
+            <input type="color" id="cardTypeOutline" value="#000000">
+            <span>Outline</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="cardNumber">Number in set</label>
+        <div class="field-with-colors">
+          <input type="text" id="cardNumber" placeholder="e.g. GG51 or 106/100">
+          <div class="color-pick">
+            <input type="color" id="cardNumberColor" value="#ffffff">
+            <span>Text</span>
+          </div>
+          <div class="color-pick">
+            <input type="color" id="cardNumberOutline" value="#000000">
+            <span>Outline</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="downloadBtn" type="button">Download</button>
+      <button id="clearBtn" type="button">Remove</button>
+    </div>
+  </div>
+
+  <p class="calibrate-link"><a href="calibrate.html">Calibrate / update watermark removal &rarr;</a></p>
+</div>
+
+<script src="constants.js"></script>
+<script src="script.js"></script>
+
+</body>
+</html>
