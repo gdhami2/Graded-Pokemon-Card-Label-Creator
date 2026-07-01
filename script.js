@@ -102,13 +102,23 @@ function applyWatermarkCorrection(imageData, strengthPercent) {
 }
 
 const LABEL_MARGIN_X = 20;
+const LABEL_FONT_STACK = '"Fredoka", Arial, sans-serif';
+
+// Canvas text doesn't trigger a webfont download the way DOM text does, and
+// drawing before it's loaded silently falls back to the next font in the
+// stack. Explicitly load it, then re-render once it's actually available.
+document.fonts.load(`700 100px ${LABEL_FONT_STACK}`).then(() => {
+  if (currentImage) processImage(Number(watermarkSlider.value));
+}).catch(() => {
+  // Offline or blocked — the Arial/sans-serif fallback in LABEL_FONT_STACK still renders fine.
+});
 
 // Shrinks the font until the text fits the available width, so long card
 // names don't run off the edge of the label.
 function fitFontSize(ctx, text, maxSize, minSize, maxWidth) {
   let size = maxSize;
   while (size > minSize) {
-    ctx.font = `bold ${size}px Arial, sans-serif`;
+    ctx.font = `bold ${size}px ${LABEL_FONT_STACK}`;
     if (ctx.measureText(text).width <= maxWidth) break;
     size -= 2;
   }
@@ -119,7 +129,7 @@ function drawTextLine(ctx, text, y, maxSize, minSize, maxWidth, textColor, outli
   if (!text) return 0;
 
   const size = fitFontSize(ctx, text, maxSize, minSize, maxWidth);
-  ctx.font = `bold ${size}px Arial, sans-serif`;
+  ctx.font = `bold ${size}px ${LABEL_FONT_STACK}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.lineJoin = 'round';
