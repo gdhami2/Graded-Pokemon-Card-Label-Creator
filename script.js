@@ -35,9 +35,9 @@ let currentFileName = 'image';
 let outputDataUrl = null;
 let outputName = 'image.png';
 
-// Grayscale correction field from watermark-profile.png, where byte value
-// 128 means "no correction" and deviations above/below represent the
-// estimated watermark's lightening/darkening effect at that pixel.
+// Alpha-composite correction profile from watermark-profile.png: RGB
+// channels hold the estimated watermark color at each pixel, and the alpha
+// channel holds the estimated blend strength (0-255) at that pixel.
 let watermarkProfile = null;
 
 watermarkSlider.value = DEFAULT_WATERMARK_STRENGTH;
@@ -52,7 +52,22 @@ watermarkValue.textContent = DEFAULT_WATERMARK_STRENGTH;
       canvas.height = TARGET_H;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, TARGET_W, TARGET_H);
-      watermarkProfile = ctx.getImageData(0, 0, TARGET_W, TARGET_H).data;
+      const data = ctx.getImageData(0, 0, TARGET_W, TARGET_H).data;
+
+      // A profile from the old delta-only calibrator has no real alpha
+      // channel (every pixel opaque at 255), which the new blend-inversion
+      // math would misread as "fully replace every pixel" — refuse to load
+      // it instead of corrupting every image.
+      let minAlpha = 255;
+      for (let p = 3; p < data.length; p += 4) {
+        if (data[p] < minAlpha) minAlpha = data[p];
+      }
+      if (minAlpha > 250) {
+        console.warn('watermark-profile.png looks like it came from an older version of calibrate.html. Please regenerate it via calibrate.html before using watermark removal.');
+        return;
+      }
+
+      watermarkProfile = data;
       watermarkRow.style.display = 'block';
     } catch (err) {
       // Some browsers block canvas pixel readback for local file:// pages.
@@ -68,13 +83,21 @@ watermarkValue.textContent = DEFAULT_WATERMARK_STRENGTH;
 function applyWatermarkCorrection(imageData, strengthPercent) {
   if (!watermarkProfile || strengthPercent === 0) return;
 
-  const scale = (strengthPercent / 100) * WATERMARK_DELTA_SCALE;
+  const strength = strengthPercent / 100;
   const data = imageData.data;
   for (let p = 0; p < data.length; p += 4) {
-    const delta = (watermarkProfile[p] - 128) * scale;
-    data[p] = Math.max(0, Math.min(255, data[p] - delta));
-    data[p + 1] = Math.max(0, Math.min(255, data[p + 1] - delta));
-    data[p + 2] = Math.max(0, Math.min(255, data[p + 2] - delta));
+    let a = (watermarkProfile[p + 3] / 255) * strength;
+    if (a <= 0) continue;
+    a = Math.min(a, MAX_WATERMARK_ALPHA);
+
+    const wr = watermarkProfile[p];
+    const wg = watermarkProfile[p + 1];
+    const wb = watermarkProfile[p + 2];
+    const inv = 1 / (1 - a);
+
+    data[p] = Math.max(0, Math.min(255, (data[p] - a * wr) * inv));
+    data[p + 1] = Math.max(0, Math.min(255, (data[p + 1] - a * wg) * inv));
+    data[p + 2] = Math.max(0, Math.min(255, (data[p + 2] - a * wb) * inv));
   }
 }
 
