@@ -160,14 +160,32 @@ function drawTextLine(ctx, text, y, maxSize, minSize, maxWidth, textColor, outli
   return size;
 }
 
+// Set name, card type, and card number all share one size; card name is
+// scaled up as the label's focal point. The shared size is solved from the
+// usable vertical band (label height minus top/bottom safe margins) so all
+// four lines are as large as they can be while still fitting inside it —
+// tied to LABEL_HEIGHT_MM/SAFE_MARGIN_MM so it stays correct (and maximal)
+// if the label's physical size ever changes again.
+const USABLE_HEIGHT_MM = LABEL_HEIGHT_MM - 2 * SAFE_MARGIN_MM;
+const CARD_NAME_SCALE = 1.4; // how much bigger the card name is than the other three lines
+const GAP_SCALE = 0.3; // line gap as a fraction of the base font size
+const SIZE_BUFFER = 0.95; // leave a little headroom for glyph overshoot beyond the nominal font size
+const BASE_FONT_MM = (USABLE_HEIGHT_MM * SIZE_BUFFER) / (3 + CARD_NAME_SCALE + 3 * GAP_SCALE);
+const CARD_NAME_FONT_MM = BASE_FONT_MM * CARD_NAME_SCALE;
+const LINE_GAP_MM = BASE_FONT_MM * GAP_SCALE;
+
 function drawLabelText(ctx, width, height) {
   const maxWidth = width - LABEL_MARGIN_X * 2;
 
+  const baseSize = mm(BASE_FONT_MM);
+  const cardNameSize = mm(CARD_NAME_FONT_MM);
+  const lineGap = mm(LINE_GAP_MM);
+
   const lines = [
-    { text: setNameInput.value.trim(), maxSize: mm(2.7), minSize: mm(1.35), color: setNameColorInput.value, outline: setNameOutlineInput.value, lineWidth: mm(0.42), lineGap: mm(0.85) },
-    { text: cardNameInput.value.trim(), maxSize: mm(3.9), minSize: mm(1.9), color: cardNameColorInput.value, outline: cardNameOutlineInput.value, lineWidth: mm(0.59), lineGap: mm(0.95) },
-    { text: cardTypeInput.value.trim(), maxSize: mm(2.3), minSize: mm(1.15), color: cardTypeColorInput.value, outline: cardTypeOutlineInput.value, lineWidth: mm(0.42), lineGap: mm(0.75) },
-    { text: cardNumberInput.value.trim(), maxSize: mm(2.3), minSize: mm(1.15), color: cardNumberColorInput.value, outline: cardNumberOutlineInput.value, lineWidth: mm(0.42), lineGap: mm(0.75) },
+    { text: setNameInput.value.trim(), maxSize: baseSize, minSize: baseSize * 0.5, color: setNameColorInput.value, outline: setNameOutlineInput.value, lineWidth: baseSize * 0.15, lineGap },
+    { text: cardNameInput.value.trim(), maxSize: cardNameSize, minSize: cardNameSize * 0.5, color: cardNameColorInput.value, outline: cardNameOutlineInput.value, lineWidth: cardNameSize * 0.15, lineGap },
+    { text: cardTypeInput.value.trim(), maxSize: baseSize, minSize: baseSize * 0.5, color: cardTypeColorInput.value, outline: cardTypeOutlineInput.value, lineWidth: baseSize * 0.15, lineGap },
+    { text: cardNumberInput.value.trim(), maxSize: baseSize, minSize: baseSize * 0.5, color: cardNumberColorInput.value, outline: cardNumberOutlineInput.value, lineWidth: baseSize * 0.15, lineGap },
   ];
 
   let y = null;
