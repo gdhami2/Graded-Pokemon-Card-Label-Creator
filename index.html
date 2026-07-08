@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Image Upload</title>
+<title>Pokemon Card Label Creator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@700&display=swap" rel="stylesheet">
@@ -12,78 +12,116 @@
 <body>
 
 <div class="card">
-  <div id="dropzone">
-    <div class="icon">🖼️</div>
-    <p>Drag &amp; drop an image here, or <span class="browse">browse</span></p>
-    <input type="file" id="fileInput" accept="image/*">
-  </div>
-
-  <div id="preview-wrap">
-    <img id="preview" alt="Selected preview">
+  <div id="preview-wrap" class="visible">
+    <img id="preview" alt="Label preview">
     <div id="dimensions">73mm x 19mm &middot; 1724 x 449 px &middot; 600 DPI</div>
-    <div id="filename"></div>
-    <div class="tolerance-row" id="watermarkRow" style="display: none;">
-      <label for="watermarkSlider">Watermark removal strength: <span id="watermarkValue"></span>%</label>
-      <input type="range" id="watermarkSlider" min="0" max="150" step="5">
-    </div>
 
-    <div class="text-fields">
-      <div class="field-group">
-        <label for="setName">Set name</label>
-        <div class="field-with-colors">
-          <input type="text" id="setName" placeholder="e.g. 2023 Crown Zenith">
+    <div class="columns">
+      <div class="column">
+        <div id="dropzone">
+          <div class="icon">🖼️</div>
+          <p>Drag &amp; drop a Pok&eacute;mon sprite here, or <span class="browse">browse</span> (optional)</p>
+          <input type="file" id="fileInput" accept="image/*">
+        </div>
+        <div id="filename"></div>
+
+        <div class="control-row" id="spriteControls" style="display: none;">
+          <label for="spriteScale">Sprite size: <span id="spriteScaleValue"></span>%</label>
+          <input type="range" id="spriteScale" min="100" max="300" step="5">
+          <label for="spriteOffsetX">Horizontal position</label>
+          <input type="range" id="spriteOffsetX" min="-50" max="50" step="1">
+          <label for="spriteOffsetY">Vertical position</label>
+          <input type="range" id="spriteOffsetY" min="-50" max="50" step="1">
+          <label class="checkbox-row"><input type="checkbox" id="mirrorSprite"> Mirror horizontally</label>
+        </div>
+
+        <div class="control-row">
+          <label for="borderColor">Border color</label>
           <div class="color-pick">
-            <input type="color" id="setNameColor" value="#ffffff">
-            <span>Text</span>
+            <input type="color" id="borderColor" value="#000000">
           </div>
-          <div class="color-pick">
-            <input type="color" id="setNameOutline" value="#000000">
-            <span>Outline</span>
+        </div>
+
+        <div class="control-row">
+          <label for="bgType">Background</label>
+          <select id="bgType">
+            <option value="solid">Solid color</option>
+            <option value="gradient">Gradient</option>
+            <option value="pattern">Foil pattern</option>
+          </select>
+          <div class="field-with-colors">
+            <div class="color-pick">
+              <input type="color" id="bgColor1" value="#ffffff">
+              <span>Color 1</span>
+            </div>
+            <div class="color-pick" id="bgColor2Row" style="display: none;">
+              <input type="color" id="bgColor2" value="#fff3dd">
+              <span>Color 2</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="field-group">
-        <label for="cardName">Card name</label>
-        <div class="field-with-colors">
-          <input type="text" id="cardName" placeholder="e.g. Hisuian Samurott V">
-          <div class="color-pick">
-            <input type="color" id="cardNameColor" value="#ffffff">
-            <span>Text</span>
+      <div class="column">
+        <div class="text-fields">
+          <div class="field-group">
+            <label for="setName">Set name</label>
+            <div class="field-with-colors">
+              <input type="text" id="setName" placeholder="e.g. 2023 Crown Zenith">
+              <div class="color-pick">
+                <input type="color" id="setNameColor" value="#ffffff">
+                <span>Text</span>
+              </div>
+              <div class="color-pick">
+                <input type="color" id="setNameOutline" value="#000000">
+                <span>Outline</span>
+              </div>
+            </div>
           </div>
-          <div class="color-pick">
-            <input type="color" id="cardNameOutline" value="#000000">
-            <span>Outline</span>
-          </div>
-        </div>
-      </div>
 
-      <div class="field-group">
-        <label for="cardType">Type of card</label>
-        <div class="field-with-colors">
-          <input type="text" id="cardType" placeholder="e.g. Special Art">
-          <div class="color-pick">
-            <input type="color" id="cardTypeColor" value="#ffffff">
-            <span>Text</span>
+          <div class="field-group">
+            <label for="cardName">Card name</label>
+            <div class="field-with-colors">
+              <input type="text" id="cardName" placeholder="e.g. Hisuian Samurott V">
+              <div class="color-pick">
+                <input type="color" id="cardNameColor" value="#ffffff">
+                <span>Text</span>
+              </div>
+              <div class="color-pick">
+                <input type="color" id="cardNameOutline" value="#000000">
+                <span>Outline</span>
+              </div>
+            </div>
           </div>
-          <div class="color-pick">
-            <input type="color" id="cardTypeOutline" value="#000000">
-            <span>Outline</span>
-          </div>
-        </div>
-      </div>
 
-      <div class="field-group">
-        <label for="cardNumber">Number in set</label>
-        <div class="field-with-colors">
-          <input type="text" id="cardNumber" placeholder="e.g. GG51 or 106/100">
-          <div class="color-pick">
-            <input type="color" id="cardNumberColor" value="#ffffff">
-            <span>Text</span>
+          <div class="field-group">
+            <label for="cardType">Type of card</label>
+            <div class="field-with-colors">
+              <input type="text" id="cardType" placeholder="e.g. Special Art">
+              <div class="color-pick">
+                <input type="color" id="cardTypeColor" value="#ffffff">
+                <span>Text</span>
+              </div>
+              <div class="color-pick">
+                <input type="color" id="cardTypeOutline" value="#000000">
+                <span>Outline</span>
+              </div>
+            </div>
           </div>
-          <div class="color-pick">
-            <input type="color" id="cardNumberOutline" value="#000000">
-            <span>Outline</span>
+
+          <div class="field-group">
+            <label for="cardNumber">Number in set</label>
+            <div class="field-with-colors">
+              <input type="text" id="cardNumber" placeholder="e.g. GG51 or 106/100">
+              <div class="color-pick">
+                <input type="color" id="cardNumberColor" value="#ffffff">
+                <span>Text</span>
+              </div>
+              <div class="color-pick">
+                <input type="color" id="cardNumberOutline" value="#000000">
+                <span>Outline</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -96,8 +134,6 @@
     </div>
     <p class="help-text">The PDF's page is set to the exact 73&times;19mm label size, so printing it at "actual size"/100% (no "fit to page") comes out correct regardless of what's printing it &mdash; recommended for professional/print-shop printing.</p>
   </div>
-
-  <p class="calibrate-link"><a href="calibrate.html">Calibrate / update watermark removal &rarr;</a></p>
 </div>
 
 <script src="constants.js"></script>

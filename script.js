@@ -6,9 +6,20 @@ const filename = document.getElementById('filename');
 const clearBtn = document.getElementById('clearBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const downloadPdfBtn = document.getElementById('downloadPdfBtn');
-const watermarkRow = document.getElementById('watermarkRow');
-const watermarkSlider = document.getElementById('watermarkSlider');
-const watermarkValue = document.getElementById('watermarkValue');
+
+const spriteControls = document.getElementById('spriteControls');
+const spriteScaleInput = document.getElementById('spriteScale');
+const spriteScaleValue = document.getElementById('spriteScaleValue');
+const spriteOffsetXInput = document.getElementById('spriteOffsetX');
+const spriteOffsetYInput = document.getElementById('spriteOffsetY');
+const mirrorSpriteInput = document.getElementById('mirrorSprite');
+
+const borderColorInput = document.getElementById('borderColor');
+const bgTypeSelect = document.getElementById('bgType');
+const bgColor1Input = document.getElementById('bgColor1');
+const bgColor2Input = document.getElementById('bgColor2');
+const bgColor2Row = document.getElementById('bgColor2Row');
+
 const setNameInput = document.getElementById('setName');
 const setNameColorInput = document.getElementById('setNameColor');
 const setNameOutlineInput = document.getElementById('setNameOutline');
@@ -29,81 +40,13 @@ const TEXT_FIELD_INPUTS = [
   cardNumberInput, cardNumberColorInput, cardNumberOutlineInput,
 ];
 
-const DEFAULT_WATERMARK_STRENGTH = 100;
-
-let currentImage = null;
-let currentFileName = 'image';
+let currentSprite = null; // background-removed sprite, cached as an offscreen canvas
+let currentFileName = 'label';
 let outputDataUrl = null;
-let outputName = 'image.png';
+let outputName = 'label.png';
 let downloadUrl = null;
-let outputPdfName = 'image.pdf';
+let outputPdfName = 'label.pdf';
 let downloadPdfUrl = null;
-
-// Alpha-composite correction profile from watermark-profile.png: RGB
-// channels hold the estimated watermark color at each pixel, and the alpha
-// channel holds the estimated blend strength (0-255) at that pixel.
-let watermarkProfile = null;
-
-watermarkSlider.value = DEFAULT_WATERMARK_STRENGTH;
-watermarkValue.textContent = DEFAULT_WATERMARK_STRENGTH;
-
-(function loadWatermarkProfile() {
-  const img = new Image();
-  img.onload = () => {
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = TARGET_W;
-      canvas.height = TARGET_H;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, TARGET_W, TARGET_H);
-      const data = ctx.getImageData(0, 0, TARGET_W, TARGET_H).data;
-
-      // A profile from the old delta-only calibrator has no real alpha
-      // channel (every pixel opaque at 255), which the new blend-inversion
-      // math would misread as "fully replace every pixel" — refuse to load
-      // it instead of corrupting every image.
-      let minAlpha = 255;
-      for (let p = 3; p < data.length; p += 4) {
-        if (data[p] < minAlpha) minAlpha = data[p];
-      }
-      if (minAlpha > 250) {
-        console.warn('watermark-profile.png looks like it came from an older version of calibrate.html. Please regenerate it via calibrate.html before using watermark removal.');
-        return;
-      }
-
-      watermarkProfile = data;
-      watermarkRow.style.display = 'block';
-    } catch (err) {
-      // Some browsers block canvas pixel readback for local file:// pages.
-      // Serving this folder over http (e.g. VS Code's Live Server) fixes it.
-      console.warn('Could not read watermark-profile.png pixels:', err);
-    }
-  };
-  // No profile yet (calibration hasn't been run) — silently skip.
-  img.onerror = () => {};
-  img.src = WATERMARK_PROFILE_URL;
-})();
-
-function applyWatermarkCorrection(imageData, strengthPercent) {
-  if (!watermarkProfile || strengthPercent === 0) return;
-
-  const strength = strengthPercent / 100;
-  const data = imageData.data;
-  for (let p = 0; p < data.length; p += 4) {
-    let a = (watermarkProfile[p + 3] / 255) * strength;
-    if (a <= 0) continue;
-    a = Math.min(a, MAX_WATERMARK_ALPHA);
-
-    const wr = watermarkProfile[p];
-    const wg = watermarkProfile[p + 1];
-    const wb = watermarkProfile[p + 2];
-    const inv = 1 / (1 - a);
-
-    data[p] = Math.max(0, Math.min(255, (data[p] - a * wr) * inv));
-    data[p + 1] = Math.max(0, Math.min(255, (data[p + 1] - a * wg) * inv));
-    data[p + 2] = Math.max(0, Math.min(255, (data[p + 2] - a * wb) * inv));
-  }
-}
 
 // Font sizes/margins are defined in mm and converted to px via the label's
 // actual DPI, so they stay physically correct if the target size/DPI ever
@@ -114,7 +57,7 @@ function mm(value) {
   return value * MM_TO_PX;
 }
 
-// Print trim tolerance: keep all label text at least this far from every
+// Print trim tolerance: keep all label content at least this far from every
 // edge (satisfies both "2-3mm safe margin for trimming" and "important text
 // at least 1.5-2mm from the edge").
 const SAFE_MARGIN_MM = 2;
@@ -122,11 +65,21 @@ const SAFE_MARGIN_PX = mm(SAFE_MARGIN_MM);
 const LABEL_MARGIN_X = SAFE_MARGIN_PX;
 const LABEL_FONT_STACK = '"Fredoka", Arial, sans-serif';
 
+const BORDER_WIDTH_MM = 1.1;
+const SPRITE_TEXT_GAP_MM = 2;
+
+// The sprite box's width isn't tied to its height (which is already maxed
+// out against the label's safe margins) — it gets its own generous share of
+// the label's width instead of being forced into a square, so wide sprites
+// (and the sprite in general) get as much room as possible while still
+// leaving the text column usable.
+const SPRITE_BOX_WIDTH_FRACTION = 0.35;
+
 // Canvas text doesn't trigger a webfont download the way DOM text does, and
 // drawing before it's loaded silently falls back to the next font in the
 // stack. Explicitly load it, then re-render once it's actually available.
 document.fonts.load(`700 100px ${LABEL_FONT_STACK}`).then(() => {
-  if (currentImage) processImage(Number(watermarkSlider.value));
+  processImage();
 }).catch(() => {
   // Offline or blocked — the Arial/sans-serif fallback in LABEL_FONT_STACK still renders fine.
 });
@@ -174,9 +127,9 @@ const BASE_FONT_MM = (USABLE_HEIGHT_MM * SIZE_BUFFER) / (3 + CARD_NAME_SCALE + 3
 const CARD_NAME_FONT_MM = BASE_FONT_MM * CARD_NAME_SCALE;
 const LINE_GAP_MM = BASE_FONT_MM * GAP_SCALE;
 
-function drawLabelText(ctx, width, height) {
-  const maxWidth = width - LABEL_MARGIN_X * 2;
-
+// maxWidth is the text column's available width — narrower than the full
+// label width since the sprite box now occupies the right side.
+function drawLabelText(ctx, maxWidth) {
   const baseSize = mm(BASE_FONT_MM);
   const cardNameSize = mm(CARD_NAME_FONT_MM);
   const lineGap = mm(LINE_GAP_MM);
@@ -202,6 +155,99 @@ function drawLabelText(ctx, width, height) {
     const size = drawTextLine(ctx, line.text, y, line.maxSize, line.minSize, maxWidth, line.color, line.outline, line.lineWidth);
     y += size + line.lineGap;
   });
+}
+
+// A faint diagonal hairline pattern (a printed-foil look), drawn by rotating
+// the canvas and stroking evenly spaced lines — canvas has no equivalent of
+// CSS's repeating-linear-gradient, so this is done as literal strokes.
+function drawFoilPattern(ctx, width, height, color) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, width, height);
+  ctx.clip();
+
+  ctx.translate(width / 2, height / 2);
+  ctx.rotate(Math.PI / 4);
+
+  const diagonal = Math.sqrt(width * width + height * height);
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.08;
+  ctx.lineWidth = mm(0.15);
+
+  const spacing = mm(1.3);
+  for (let x = -diagonal; x <= diagonal; x += spacing) {
+    ctx.beginPath();
+    ctx.moveTo(x, -diagonal);
+    ctx.lineTo(x, diagonal);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawBackground(ctx, width, height) {
+  const type = bgTypeSelect.value;
+  const color1 = bgColor1Input.value;
+
+  if (type === 'gradient') {
+    const gradient = ctx.createLinearGradient(0, 0, width, height);
+    gradient.addColorStop(0, color1);
+    gradient.addColorStop(1, bgColor2Input.value);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+  } else {
+    ctx.fillStyle = color1;
+    ctx.fillRect(0, 0, width, height);
+    if (type === 'pattern') {
+      drawFoilPattern(ctx, width, height, '#000000');
+    }
+  }
+}
+
+function drawBorder(ctx, width, height) {
+  const borderWidthPx = mm(BORDER_WIDTH_MM);
+  ctx.save();
+  ctx.strokeStyle = borderColorInput.value;
+  ctx.lineWidth = borderWidthPx;
+  ctx.strokeRect(borderWidthPx / 2, borderWidthPx / 2, width - borderWidthPx, height - borderWidthPx);
+  ctx.restore();
+}
+
+// Scale 100% contain-fits the whole sprite in its box; higher values zoom in
+// and let the box's clip cut parts away, with the offset sliders choosing
+// which part stays visible. The box isn't forced to be square — it's sized
+// independently in each dimension so non-square sprites (or a wide box) can
+// render larger instead of being capped by whichever side is shortest.
+function drawSprite(ctx, boxX, boxY, boxWidth, boxHeight) {
+  if (!currentSprite) return;
+
+  const spriteW = currentSprite.width;
+  const spriteH = currentSprite.height;
+  const baseScale = Math.min(boxWidth / spriteW, boxHeight / spriteH);
+  const userScale = Number(spriteScaleInput.value) / 100;
+  const scale = baseScale * userScale;
+
+  const drawWidth = spriteW * scale;
+  const drawHeight = spriteH * scale;
+
+  const offsetXFrac = Number(spriteOffsetXInput.value) / 100;
+  const offsetYFrac = Number(spriteOffsetYInput.value) / 100;
+
+  const centerX = boxX + boxWidth / 2 + offsetXFrac * boxWidth;
+  const centerY = boxY + boxHeight / 2 + offsetYFrac * boxHeight;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(boxX, boxY, boxWidth, boxHeight);
+  ctx.clip();
+  ctx.imageSmoothingEnabled = false;
+  if (mirrorSpriteInput.checked) {
+    // Flip around the sprite's own center so mirroring doesn't shift its position.
+    ctx.translate(centerX, 0);
+    ctx.scale(-1, 1);
+    ctx.translate(-centerX, 0);
+  }
+  ctx.drawImage(currentSprite, centerX - drawWidth / 2, centerY - drawHeight / 2, drawWidth, drawHeight);
+  ctx.restore();
 }
 
 // Pixel dimensions alone don't tell a printer the physical size to print
@@ -337,20 +383,23 @@ function buildLabelPdf(canvas, widthMm, heightMm) {
   return concatBytes([header, ...objects, textToBytes(xref), textToBytes(trailer)]);
 }
 
-function processImage(watermarkStrength) {
-  if (!currentImage) return;
-
+function processImage() {
   const canvas = document.createElement('canvas');
   canvas.width = TARGET_W;
   canvas.height = TARGET_H;
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(currentImage, 0, 0, TARGET_W, TARGET_H);
 
-  const imageData = ctx.getImageData(0, 0, TARGET_W, TARGET_H);
-  applyWatermarkCorrection(imageData, watermarkStrength);
-  ctx.putImageData(imageData, 0, 0);
+  drawBackground(ctx, TARGET_W, TARGET_H);
 
-  drawLabelText(ctx, TARGET_W, TARGET_H);
+  const spriteBoxHeight = TARGET_H - 2 * SAFE_MARGIN_PX;
+  const spriteBoxWidth = TARGET_W * SPRITE_BOX_WIDTH_FRACTION;
+  const spriteBoxX = TARGET_W - SAFE_MARGIN_PX - spriteBoxWidth;
+  const spriteBoxY = SAFE_MARGIN_PX;
+  const textMaxWidth = spriteBoxX - mm(SPRITE_TEXT_GAP_MM) - LABEL_MARGIN_X;
+
+  drawSprite(ctx, spriteBoxX, spriteBoxY, spriteBoxWidth, spriteBoxHeight);
+  drawBorder(ctx, TARGET_W, TARGET_H);
+  drawLabelText(ctx, textMaxWidth);
 
   outputDataUrl = canvas.toDataURL('image/png');
   outputName = `${currentFileName}-${LABEL_WIDTH_MM}x${LABEL_HEIGHT_MM}mm.png`;
@@ -366,21 +415,25 @@ function processImage(watermarkStrength) {
   downloadPdfUrl = URL.createObjectURL(new Blob([pdfBytes], { type: 'application/pdf' }));
 }
 
-function showFile(file) {
+function handleSpriteFile(file) {
   if (!file || !file.type.startsWith('image/')) return;
 
   const reader = new FileReader();
   reader.onload = (e) => {
     const img = new Image();
     img.onload = () => {
-      currentImage = img;
+      currentSprite = img;
       currentFileName = file.name.replace(/\.[^.]+$/, '');
-
-      processImage(Number(watermarkSlider.value));
-
       filename.textContent = file.name;
-      previewWrap.classList.add('visible');
-      dropzone.style.display = 'none';
+
+      spriteScaleInput.value = 100;
+      spriteOffsetXInput.value = 0;
+      spriteOffsetYInput.value = 0;
+      spriteScaleValue.textContent = 100;
+      mirrorSpriteInput.checked = false;
+      spriteControls.style.display = 'block';
+
+      processImage();
     };
     img.src = e.target.result;
   };
@@ -390,7 +443,7 @@ function showFile(file) {
 dropzone.addEventListener('click', () => fileInput.click());
 
 fileInput.addEventListener('change', () => {
-  showFile(fileInput.files[0]);
+  handleSpriteFile(fileInput.files[0]);
 });
 
 dropzone.addEventListener('dragover', (e) => {
@@ -405,34 +458,48 @@ dropzone.addEventListener('dragleave', () => {
 dropzone.addEventListener('drop', (e) => {
   e.preventDefault();
   dropzone.classList.remove('dragover');
-  const file = e.dataTransfer.files[0];
-  showFile(file);
+  handleSpriteFile(e.dataTransfer.files[0]);
 });
 
-watermarkSlider.addEventListener('input', () => {
-  watermarkValue.textContent = watermarkSlider.value;
-  processImage(Number(watermarkSlider.value));
+spriteScaleInput.addEventListener('input', () => {
+  spriteScaleValue.textContent = spriteScaleInput.value;
+  processImage();
 });
+spriteOffsetXInput.addEventListener('input', () => processImage());
+spriteOffsetYInput.addEventListener('input', () => processImage());
+mirrorSpriteInput.addEventListener('change', () => processImage());
+
+borderColorInput.addEventListener('input', () => processImage());
+
+bgTypeSelect.addEventListener('change', () => {
+  bgColor2Row.style.display = bgTypeSelect.value === 'gradient' ? 'flex' : 'none';
+  processImage();
+});
+bgColor1Input.addEventListener('input', () => processImage());
+bgColor2Input.addEventListener('input', () => processImage());
 
 TEXT_FIELD_INPUTS.forEach((el) => {
-  el.addEventListener('input', () => processImage(Number(watermarkSlider.value)));
+  el.addEventListener('input', () => processImage());
 });
 
 clearBtn.addEventListener('click', () => {
+  currentSprite = null;
+  currentFileName = 'label';
   fileInput.value = '';
-  preview.src = '';
-  currentImage = null;
-  outputDataUrl = null;
-  if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-  downloadUrl = null;
-  if (downloadPdfUrl) URL.revokeObjectURL(downloadPdfUrl);
-  downloadPdfUrl = null;
+  filename.textContent = '';
+  spriteControls.style.display = 'none';
+  spriteScaleInput.value = 100;
+  spriteOffsetXInput.value = 0;
+  spriteOffsetYInput.value = 0;
+  spriteScaleValue.textContent = 100;
+  mirrorSpriteInput.checked = false;
+
   setNameInput.value = '';
   cardNameInput.value = '';
   cardTypeInput.value = '';
   cardNumberInput.value = '';
-  previewWrap.classList.remove('visible');
-  dropzone.style.display = 'block';
+
+  processImage();
 });
 
 downloadBtn.addEventListener('click', () => {
@@ -454,3 +521,5 @@ downloadPdfBtn.addEventListener('click', () => {
   a.click();
   a.remove();
 });
+
+processImage();
