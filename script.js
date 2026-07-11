@@ -184,21 +184,88 @@ function drawFoilPattern(ctx, width, height, color) {
   ctx.restore();
 }
 
+// Radiating rays from center — the classic Pokemon "Rare Holo" card look.
+function drawStarburstPattern(ctx, width, height, color) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const maxR = Math.sqrt(cx * cx + cy * cy) * 1.2;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, width, height);
+  ctx.clip();
+
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.12;
+  ctx.lineWidth = mm(0.25);
+
+  const rayCount = 56;
+  for (let i = 0; i < rayCount; i++) {
+    const angle = (i / rayCount) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(angle) * maxR, cy + Math.sin(angle) * maxR);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// A hard diagonal line dividing the label into two color blocks.
+function drawColorSplit(ctx, width, height, color1, color2) {
+  ctx.fillStyle = color1;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = color2;
+  ctx.beginPath();
+  ctx.moveTo(width * 0.62, 0);
+  ctx.lineTo(width, 0);
+  ctx.lineTo(width, height);
+  ctx.lineTo(width * 0.42, height);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// A grid of small dots — the same "printed texture" idea as the foil
+// hairlines, but a halftone look instead of diagonal lines.
+function drawHalftonePattern(ctx, width, height, color) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.14;
+
+  const spacing = mm(1.1);
+  const radius = mm(0.22);
+  for (let y = spacing / 2; y < height; y += spacing) {
+    for (let x = spacing / 2; x < width; x += spacing) {
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 function drawBackground(ctx, width, height) {
   const type = bgTypeSelect.value;
   const color1 = bgColor1Input.value;
+  const color2 = bgColor2Input.value;
 
   if (type === 'gradient') {
     const gradient = ctx.createLinearGradient(0, 0, width, height);
     gradient.addColorStop(0, color1);
-    gradient.addColorStop(1, bgColor2Input.value);
+    gradient.addColorStop(1, color2);
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
+  } else if (type === 'split') {
+    drawColorSplit(ctx, width, height, color1, color2);
   } else {
     ctx.fillStyle = color1;
     ctx.fillRect(0, 0, width, height);
     if (type === 'pattern') {
       drawFoilPattern(ctx, width, height, '#000000');
+    } else if (type === 'starburst') {
+      drawStarburstPattern(ctx, width, height, color2);
+    } else if (type === 'halftone') {
+      drawHalftonePattern(ctx, width, height, color2);
     }
   }
 }
@@ -471,8 +538,9 @@ mirrorSpriteInput.addEventListener('change', () => processImage());
 
 borderColorInput.addEventListener('input', () => processImage());
 
+const BG_TYPES_USING_COLOR2 = ['gradient', 'starburst', 'split', 'halftone'];
 bgTypeSelect.addEventListener('change', () => {
-  bgColor2Row.style.display = bgTypeSelect.value === 'gradient' ? 'flex' : 'none';
+  bgColor2Row.style.display = BG_TYPES_USING_COLOR2.includes(bgTypeSelect.value) ? 'flex' : 'none';
   processImage();
 });
 bgColor1Input.addEventListener('input', () => processImage());
